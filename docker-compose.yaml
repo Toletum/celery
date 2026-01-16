@@ -1,0 +1,92 @@
+version: "3.8"
+
+services:
+  redis-server:
+    image: redis:alpine
+    container_name: redis_container
+    restart: always
+    command: redis-server --appendonly yes
+    networks:
+      - thenetwork
+    volumes:
+      - redis_data:/data
+
+  # Redis Insight (GUI for managing Redis)
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: redis_insight_container
+    restart: always
+    ports:
+      - "5540:5540"
+    networks:
+      - thenetwork
+    depends_on:
+      - redis-server
+    volumes:
+      - redis_insight_data:/data
+
+  # Celery Worker Service
+  celery:
+    image: python:3.14-alpine
+    container_name: celery_worker
+    networks:
+      - thenetwork
+    volumes:
+      - python_data:/app
+    working_dir: /app
+    depends_on:
+      - redis-server
+    # Direct execution from the virtual environment
+    command:
+      [
+        "/app/venv/bin/celery",
+        "-A",
+        "mycelery",
+        "worker",
+        "--loglevel=info",
+        "-E",
+      ]
+
+  flower:
+    image: python:3.14-alpine
+    container_name: flower_container
+    ports:
+      - "5555:5555"
+    networks:
+      - thenetwork
+    volumes:
+      - python_data:/app
+    working_dir: /app
+    depends_on:
+      - redis-server
+    # Direct execution from the virtual environment
+    command:
+      ["/app/venv/bin/celery", "-A", "mycelery", "flower", "--loglevel=info"]
+
+  celery-insights:
+    image: ghcr.io/danyi1212/celery-insights:latest
+    container_name: celery_insights
+    ports:
+      - "8555:8555"
+    networks:
+      - thenetwork
+    depends_on:
+      - celery
+    environment:
+      - BROKER_URL=redis://redis-server:6379/0
+      - RESULT_BACKEND=redis://redis-server:6379/0
+      - PERSISTENCE_PATH=/app/data/insights.db
+    volumes:
+      - celery_insights_data:/app/data
+
+networks:
+  thenetwork:
+    driver: bridge
+
+volumes:
+  redis_data:
+  redis_insight_data:
+  celery_insights_data:
+  python_data:
+    external: true
+    name: python
